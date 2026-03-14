@@ -15,8 +15,8 @@ supabase/.branches/
 
 # Environment
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # OS
 .DS_Store
@@ -30,3 +30,13 @@ Thumbs.db
 
 # Debug
 npm-debug.log*
+
+# Private Financials / Wallets
+*.key
+wallet/
+private/
+
+# Claude / AI Metadata
+.claude/
+AGENTS.md
+plans/
