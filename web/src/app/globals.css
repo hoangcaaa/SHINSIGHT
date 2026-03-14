@@ -137,3 +137,20 @@
     @apply font-sans;
   }
 }
+
+/* Phase 5: card animations and overlays */
+.sealed-overlay {
+  background: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(239,159,39,0.08) 4px, rgba(239,159,39,0.08) 5px);
+}
+.card-sealed:hover {
+  box-shadow: 0 0 24px rgba(239,159,39,0.3);
+  border-color: #EF9F27;
+  transition: all 0.3s ease;
+}
+.card-flip { perspective: 1000px; }
+.card-inner { transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1); transform-style: preserve-3d; }
+.card-inner.revealed { transform: rotateY(180deg); }
+.card-face { backface-visibility: hidden; }
+.card-face-back { transform: rotateY(180deg); }
+@keyframes amber-pulse { 0%, 100% { border-color: transparent; } 50% { border-color: #EF9F27; } }
+.animate-amber-pulse { animation: amber-pulse 2s ease-in-out infinite; }
