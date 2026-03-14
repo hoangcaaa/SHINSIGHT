@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
 import "./globals.css";
+import { WalletProvider } from "@/components/wallet/wallet-provider";
+import { SiteHeader } from "@/components/layout/site-header";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,9 +14,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Playfair Display for the SHINSIGHT brand logo
+const playfairDisplay = Playfair_Display({
+  variable: "--font-playfair",
+  subsets: ["latin"],
+  weight: ["700"],
+});
+
 export const metadata: Metadata = {
   title: "SHINSIGHT — KOL Price Predictions",
-  description: "Cryptographic alpha marketplace — KOL price predictions with on-chain escrow settlement",
+  description:
+    "Cryptographic alpha marketplace — KOL price predictions with on-chain escrow settlement",
 };
 
 export default function RootLayout({
@@ -25,9 +35,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${playfairDisplay.variable} antialiased`}
       >
-        {children}
+        <WalletProvider>
+          <SiteHeader />
+          <main className="min-h-screen">{children}</main>
+        </WalletProvider>
       </body>
     </html>
   );
