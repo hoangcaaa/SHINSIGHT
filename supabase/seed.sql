@@ -1,0 +1,2 @@
+-- Seed data for SHINSIGHT development
+-- Will be populated in Phase 3
