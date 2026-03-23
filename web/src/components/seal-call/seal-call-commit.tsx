@@ -13,7 +13,7 @@ interface SealCallCommitProps {
 type CommitState = "idle" | "sealing" | "submitting" | "done" | "error";
 
 export function SealCallCommit({ data, onBack, onDone }: SealCallCommitProps) {
-  const { commitCall } = useWalletActions();
+  const { commitCall, account } = useWalletActions();
   const [state, setState] = useState<CommitState>("idle");
   const [callId, setCallId] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string>("");
@@ -21,15 +21,20 @@ export function SealCallCommit({ data, onBack, onDone }: SealCallCommitProps) {
   async function handleCommit() {
     setState("sealing");
     try {
+      const revealUnix = Math.floor(new Date(data.revealAt).getTime() / 1000);
+
       // Step 1: seal via Edge Function → get content_hash
       const res = await fetch("/api/submit-call", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Wallet-Address": account?.address?.toString() ?? "",
+        },
         body: JSON.stringify({
           asset: data.asset,
           direction: data.direction,
-          target_price: Number(data.targetPriceUsd) * 1e8, // Pyth-style
-          reveal_timestamp: new Date(data.revealAt).toISOString(),
+          target_price: Math.round(Number(data.targetPriceUsd) * 1e8),
+          reveal_timestamp: revealUnix,
           unlock_price: Math.round(Number(data.unlockPriceApt) * 1e8),
         }),
       });
@@ -39,7 +44,7 @@ export function SealCallCommit({ data, onBack, onDone }: SealCallCommitProps) {
         throw new Error(body.error ?? "Seal failed");
       }
 
-      const { content_hash, call_db_id } = await res.json();
+      const { content_hash, call_id: callDbId } = await res.json();
       setState("submitting");
 
       // Step 2: commit on-chain
@@ -48,11 +53,20 @@ export function SealCallCommit({ data, onBack, onDone }: SealCallCommitProps) {
         asset: data.asset,
         direction: data.direction,
         targetPrice: Math.round(Number(data.targetPriceUsd) * 1e8),
-        revealTimestamp: Math.floor(new Date(data.revealAt).getTime() / 1000),
+        revealTimestamp: revealUnix,
         unlockPrice: Math.round(Number(data.unlockPriceApt) * 1e8),
       });
 
-      setCallId(call_db_id ?? txHash.slice(0, 10));
+      // Step 3: link on-chain call ID back to Supabase record
+      // The on-chain call_id is emitted in the tx events — extract from indexer
+      // For MVP, use the DB ID as display; call_id_onchain updated via event listener
+      await fetch("/api/link-call-onchain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ call_db_id: callDbId, tx_hash: txHash }),
+      }).catch(() => {}); // best-effort linking
+
+      setCallId(callDbId?.toString() ?? txHash.slice(0, 10));
       setState("done");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";

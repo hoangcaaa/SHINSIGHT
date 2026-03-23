@@ -1,6 +1,7 @@
 "use client";
 /// Unlock button — multi-state: default → confirming → decrypting → revealed / error
 import { useState } from "react";
+import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import { useWalletActions } from "@/lib/hooks/use-wallet-actions";
 import { decryptCall } from "@/lib/utils/decrypt-call";
 import { formatApt, formatUsdPrice } from "@/lib/utils/format-price";
@@ -14,6 +15,7 @@ type State = "idle" | "confirming" | "decrypting" | "revealed" | "error";
 
 export function UnlockButton({ call }: UnlockButtonProps) {
   const { depositForCall } = useWalletActions();
+  const { account } = useWallet();
   const [state, setState] = useState<State>("idle");
   const [revealedPrice, setRevealedPrice] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
@@ -31,7 +33,11 @@ export function UnlockButton({ call }: UnlockButtonProps) {
       const res = await fetch("/api/unlock-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ call_id: call.id, tx_hash: txHash }),
+        body: JSON.stringify({
+          call_id: call.id,
+          buyer_address: account?.address?.toString() ?? "",
+          tx_hash: txHash,
+        }),
       });
 
       if (!res.ok) {
@@ -39,8 +45,8 @@ export function UnlockButton({ call }: UnlockButtonProps) {
         throw new Error(body.error ?? "Key delivery failed");
       }
 
-      const { encrypted_blob, key, iv } = await res.json();
-      const decrypted = await decryptCall(encrypted_blob, key, iv);
+      const { encrypted_blob, decryption_key, encryption_iv } = await res.json();
+      const decrypted = await decryptCall(encrypted_blob, decryption_key, encryption_iv);
       setRevealedPrice(decrypted.target_price);
       setState("revealed");
     } catch (err: unknown) {
@@ -60,8 +66,16 @@ export function UnlockButton({ call }: UnlockButtonProps) {
 
   if (state === "error") {
     return (
-      <div className="rounded-md border border-[#E24B4A] bg-[#E24B4A]/10 px-4 py-2 text-center text-xs text-[#E24B4A]">
-        {errorMsg}
+      <div className="flex flex-col gap-1.5">
+        <div className="rounded-md border border-[#E24B4A] bg-[#E24B4A]/10 px-4 py-2 text-center text-xs text-[#E24B4A]">
+          {errorMsg}
+        </div>
+        <button
+          onClick={() => setState("idle")}
+          className="text-xs text-[#888780] underline hover:text-[#F5F5F0]"
+        >
+          Try again
+        </button>
       </div>
     );
   }

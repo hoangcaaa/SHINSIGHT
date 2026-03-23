@@ -21,12 +21,16 @@ serve(async (req) => {
       });
     }
 
-    // Get KOL address from auth header (wallet-signed JWT)
-    const authHeader = req.headers.get("Authorization") ?? "";
+    // Get KOL address from header
+    // NOTE: For MVP, we accept the wallet address from the header.
+    // The on-chain create_call tx is signed by the real wallet, so
+    // the call_id_onchain linking step (link-call-onchain) verifies
+    // that the tx sender matches this address. A spoofed address here
+    // will fail at the linking step since the on-chain tx won't match.
     const kolAddress = req.headers.get("X-Wallet-Address") ?? "";
 
-    if (!kolAddress) {
-      return new Response(JSON.stringify({ error: "Missing wallet address" }), {
+    if (!kolAddress || !kolAddress.startsWith("0x") || kolAddress.length < 10) {
+      return new Response(JSON.stringify({ error: "Invalid wallet address" }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });

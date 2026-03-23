@@ -1,8 +1,17 @@
 import type { NextConfig } from "next";
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321";
+
 const nextConfig: NextConfig = {
-  // Turbopack is default in Next.js 16; empty config silences the webpack warning
   turbopack: {},
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${supabaseUrl}/functions/v1/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

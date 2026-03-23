@@ -2,6 +2,7 @@
 /// Polled by pg_cron. Finds due calls, fetches Pyth VAA, triggers on-chain settlement.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { submitSettlement } from "../_shared/aptos-client.ts";
 
 // Pyth price feed IDs (testnet)
 const PRICE_FEED_IDS: Record<number, string> = {
@@ -19,7 +20,8 @@ serve(async (req) => {
   // Auth check — only service_role or cron should call this
   const authHeader = req.headers.get("Authorization") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (!authHeader.includes(serviceKey) && !authHeader.includes("Bearer")) {
+  const token = authHeader.replace("Bearer ", "");
+  if (!serviceKey || token !== serviceKey) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -83,8 +85,10 @@ serve(async (req) => {
   }
 });
 
-/** Fetch latest Pyth price for an asset */
-async function fetchPythPrice(asset: number): Promise<{ price: number; timestamp: number }> {
+/** Fetch latest Pyth price for an asset, including VAA for on-chain submission */
+async function fetchPythPrice(
+  asset: number,
+): Promise<{ price: number; timestamp: number; vaaHex: string }> {
   const feedId = PRICE_FEED_IDS[asset];
   if (!feedId) throw new Error(`Unknown asset: ${asset}`);
 
@@ -99,15 +103,18 @@ async function fetchPythPrice(asset: number): Promise<{ price: number; timestamp
 
   // Price is returned as string with exponent — convert to integer
   const priceVal = Math.abs(Number(parsed.price));
-  return { price: priceVal, timestamp: Number(parsed.publish_time) };
+  // Extract binary VAA for on-chain Pyth price update
+  const vaaHex = data.binary?.data?.[0] ?? "";
+
+  return { price: priceVal, timestamp: Number(parsed.publish_time), vaaHex };
 }
 
-/** Handle settlement — compare Pyth price vs target, update DB */
+/** Handle settlement — compare Pyth price vs target, trigger on-chain, update DB */
 async function handleSettlement(
   supabase: ReturnType<typeof createClient>,
   call: Record<string, unknown>,
 ) {
-  const { price: oraclePrice } = await fetchPythPrice(call.asset as number);
+  const { price: oraclePrice, vaaHex } = await fetchPythPrice(call.asset as number);
   const targetPrice = call.target_price as number;
   const direction = call.direction as boolean;
 
@@ -118,78 +125,158 @@ async function handleSettlement(
 
   const verdict = isCorrect ? "settled_true" : "settled_false";
 
+  // Trigger on-chain settlement (best-effort for MVP)
+  let settlementTxHash: string | null = null;
+  if (call.call_id_onchain) {
+    try {
+      const txResult = await submitSettlement(
+        call.call_id_onchain as number,
+        "settle",
+        vaaHex,
+      );
+      if (txResult.success) settlementTxHash = txResult.hash;
+    } catch (err) {
+      console.error(`On-chain settle failed for call ${call.id}:`, err);
+    }
+  }
+
+  // Calculate escrow amounts (match contract: 10% protocol, 90/30 KOL split)
+  const { data: buyers } = await supabase
+    .from("buyers")
+    .select("id")
+    .eq("call_id", call.id);
+  const buyerCount = buyers?.length ?? 0;
+  const totalEscrow = buyerCount * (call.unlock_price as number);
+  const protocolFee = Math.floor(totalEscrow * 0.1);
+  const distributable = totalEscrow - protocolFee;
+  const kolPayout = isCorrect
+    ? Math.floor(distributable * 0.9)
+    : Math.floor(distributable * 0.3);
+  const buyerRefundPer = buyerCount > 0
+    ? Math.floor((distributable - kolPayout) / buyerCount)
+    : 0;
+
   // Update call status and reveal
   await supabase
     .from("calls")
-    .update({ status: verdict, is_revealed: true })
+    .update({
+      status: verdict,
+      is_revealed: true,
+      settlement_tx_hash: settlementTxHash,
+    })
     .eq("id", call.id);
 
-  // Log settlement
+  // Log settlement with amounts
   await supabase.from("settlement_log").insert({
     call_id: call.id,
     verdict,
     oracle_price: oraclePrice,
     target_price: targetPrice,
+    total_escrow: totalEscrow,
+    kol_payout: kolPayout,
+    buyer_refund_per: buyerRefundPer,
+    protocol_fee: protocolFee,
+    tx_hash: settlementTxHash,
   });
 
   // Update KOL stats
-  await updateKolStats(supabase, call.kol_address as string, verdict);
+  await updateKolStats(supabase, call.kol_address as string, verdict, kolPayout);
 }
 
-/** Handle expiry — mark expired, refund path */
+/** Handle expiry — trigger on-chain refund, mark expired */
 async function handleExpiry(
   supabase: ReturnType<typeof createClient>,
   call: Record<string, unknown>,
 ) {
+  let expiryTxHash: string | null = null;
+  if (call.call_id_onchain) {
+    try {
+      const txResult = await submitSettlement(
+        call.call_id_onchain as number,
+        "expire",
+      );
+      if (txResult.success) expiryTxHash = txResult.hash;
+    } catch (err) {
+      console.error(`On-chain expire failed for call ${call.id}:`, err);
+    }
+  }
+
   await supabase
     .from("calls")
-    .update({ status: "expired", is_revealed: true })
+    .update({ status: "expired", is_revealed: true, settlement_tx_hash: expiryTxHash })
     .eq("id", call.id);
 
   await supabase.from("settlement_log").insert({
     call_id: call.id,
     verdict: "expired",
     target_price: call.target_price,
+    tx_hash: expiryTxHash,
   });
 
-  await updateKolStats(supabase, call.kol_address as string, "expired");
+  await updateKolStats(supabase, call.kol_address as string, "expired", 0);
 }
 
-/** Update KOL accuracy stats after settlement */
+/** Update KOL accuracy stats after settlement using atomic SQL via RPC */
 async function updateKolStats(
   supabase: ReturnType<typeof createClient>,
   kolAddress: string,
   verdict: string,
+  escrowEarned: number = 0,
 ) {
-  // Upsert KOL stats
-  const { data: existing } = await supabase
-    .from("kol_stats")
-    .select("*")
-    .eq("kol_address", kolAddress)
-    .single();
+  // Ensure KOL row exists (upsert with defaults)
+  await supabase.from("kol_stats").upsert(
+    { kol_address: kolAddress },
+    { onConflict: "kol_address", ignoreDuplicates: true },
+  );
 
-  const stats = existing ?? {
-    kol_address: kolAddress,
-    total_calls: 0,
-    true_calls: 0,
-    false_calls: 0,
-    expired_calls: 0,
-    total_escrow_earned: 0,
-    current_streak: 0,
-  };
+  // Atomic increments to avoid read-modify-write race conditions
+  const trueInc = verdict === "settled_true" ? 1 : 0;
+  const falseInc = verdict === "settled_false" ? 1 : 0;
+  const expiredInc = verdict === "expired" ? 1 : 0;
 
-  stats.total_calls += 1;
+  // Compute new streak value
+  // TRUE: positive streak (reset to 1 if was negative), FALSE: negative streak, EXPIRED: reset to 0
+  let streakExpr: string;
   if (verdict === "settled_true") {
-    stats.true_calls += 1;
-    stats.current_streak = stats.current_streak >= 0 ? stats.current_streak + 1 : 1;
+    streakExpr = "CASE WHEN current_streak >= 0 THEN current_streak + 1 ELSE 1 END";
   } else if (verdict === "settled_false") {
-    stats.false_calls += 1;
-    stats.current_streak = stats.current_streak <= 0 ? stats.current_streak - 1 : -1;
+    streakExpr = "CASE WHEN current_streak <= 0 THEN current_streak - 1 ELSE -1 END";
   } else {
-    stats.expired_calls += 1;
-    stats.current_streak = 0;
+    streakExpr = "0";
   }
-  stats.updated_at = new Date().toISOString();
 
-  await supabase.from("kol_stats").upsert(stats, { onConflict: "kol_address" });
+  // Use raw SQL for atomic update (Supabase .rpc or direct update with incrementing)
+  await supabase.rpc("update_kol_stats_atomic", {
+    p_kol_address: kolAddress,
+    p_true_inc: trueInc,
+    p_false_inc: falseInc,
+    p_expired_inc: expiredInc,
+    p_escrow_earned: escrowEarned,
+    p_verdict: verdict,
+  }).then(() => {}).catch(async () => {
+    // Fallback: if RPC not available, use standard update (non-atomic but functional)
+    const { data: existing } = await supabase
+      .from("kol_stats")
+      .select("*")
+      .eq("kol_address", kolAddress)
+      .single();
+
+    if (!existing) return;
+
+    existing.total_calls += 1;
+    existing.true_calls += trueInc;
+    existing.false_calls += falseInc;
+    existing.expired_calls += expiredInc;
+    existing.total_escrow_earned += escrowEarned;
+    if (verdict === "settled_true") {
+      existing.current_streak = existing.current_streak >= 0 ? existing.current_streak + 1 : 1;
+    } else if (verdict === "settled_false") {
+      existing.current_streak = existing.current_streak <= 0 ? existing.current_streak - 1 : -1;
+    } else {
+      existing.current_streak = 0;
+    }
+    existing.updated_at = new Date().toISOString();
+
+    await supabase.from("kol_stats").upsert(existing, { onConflict: "kol_address" });
+  });
 }
