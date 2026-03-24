@@ -85,10 +85,10 @@ serve(async (req) => {
   }
 });
 
-/** Fetch latest Pyth price for an asset, including VAA for on-chain submission */
+/** Fetch latest Pyth price for an asset */
 async function fetchPythPrice(
   asset: number,
-): Promise<{ price: number; timestamp: number; vaaHex: string }> {
+): Promise<{ price: number; timestamp: number }> {
   const feedId = PRICE_FEED_IDS[asset];
   if (!feedId) throw new Error(`Unknown asset: ${asset}`);
 
@@ -103,10 +103,7 @@ async function fetchPythPrice(
 
   // Price is returned as string with exponent — convert to integer
   const priceVal = Math.abs(Number(parsed.price));
-  // Extract binary VAA for on-chain Pyth price update
-  const vaaHex = data.binary?.data?.[0] ?? "";
-
-  return { price: priceVal, timestamp: Number(parsed.publish_time), vaaHex };
+  return { price: priceVal, timestamp: Number(parsed.publish_time) };
 }
 
 /** Handle settlement — compare Pyth price vs target, trigger on-chain, update DB */
@@ -114,7 +111,7 @@ async function handleSettlement(
   supabase: ReturnType<typeof createClient>,
   call: Record<string, unknown>,
 ) {
-  const { price: oraclePrice, vaaHex } = await fetchPythPrice(call.asset as number);
+  const { price: oraclePrice } = await fetchPythPrice(call.asset as number);
   const targetPrice = call.target_price as number;
   const direction = call.direction as boolean;
 
@@ -132,7 +129,7 @@ async function handleSettlement(
       const txResult = await submitSettlement(
         call.call_id_onchain as number,
         "settle",
-        vaaHex,
+        call.asset as number,
       );
       if (txResult.success) settlementTxHash = txResult.hash;
     } catch (err) {
