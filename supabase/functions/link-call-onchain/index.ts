@@ -70,14 +70,21 @@ serve(async (req) => {
       });
     }
 
-    await supabase
+    const { error: updateErr, count } = await supabase
       .from("calls")
       .update({ call_id_onchain: result.callId })
       .eq("id", call_db_id)
       .is("call_id_onchain", null); // Only update if still null (prevent races)
 
+    if (updateErr) {
+      return new Response(
+        JSON.stringify({ error: `DB update failed: ${updateErr.message}` }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
     return new Response(
-      JSON.stringify({ call_id_onchain: result.callId }),
+      JSON.stringify({ call_id_onchain: result.callId, updated: count }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   } catch (err) {
