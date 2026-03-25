@@ -171,6 +171,62 @@ module shinsight::oracle_settlement {
         event::emit(ExpiredEvent { call_id });
     }
 
+    /// Settle a call with an admin-provided price (testnet only).
+    /// The admin fetches the Pyth price off-chain and submits it directly.
+    /// This bypasses the on-chain Pyth dependency when Pyth isn't initialized on testnet.
+    /// For mainnet, use settle() with on-chain Pyth verification.
+    public entry fun settle_with_price(
+        account: &signer,
+        module_addr: address,
+        call_id: u64,
+        actual_price: u64,
+    ) acquires OracleConfig {
+        // Auth check — only admin can submit prices
+        let config = borrow_global<OracleConfig>(module_addr);
+        assert!(signer::address_of(account) == config.admin, E_NOT_AUTHORIZED);
+
+        // Verify call is active
+        let status = call_registry::get_call_status(module_addr, call_id);
+        assert!(status == call_registry::status_active(), E_CALL_NOT_ACTIVE);
+
+        // Verify reveal_timestamp has passed
+        let reveal_ts = call_registry::get_reveal_timestamp(module_addr, call_id);
+        assert!(timestamp::now_seconds() >= reveal_ts, E_TOO_EARLY_TO_SETTLE);
+
+        // Get call details
+        let asset = call_registry::get_asset(module_addr, call_id);
+        let direction = call_registry::get_direction(module_addr, call_id);
+        let target_price = call_registry::get_target_price(module_addr, call_id);
+
+        // Compute verdict based on direction
+        let is_correct = if (direction) {
+            actual_price >= target_price // UP
+        } else {
+            actual_price <= target_price // DOWN
+        };
+
+        let verdict = if (is_correct) {
+            call_registry::status_settled_true()
+        } else {
+            call_registry::status_settled_false()
+        };
+
+        // Execute settlement in escrow
+        escrow::execute_settlement(module_addr, call_id, verdict);
+
+        // Update call status
+        call_registry::update_status(module_addr, call_id, verdict);
+
+        event::emit(VerdictEvent {
+            call_id,
+            asset,
+            actual_price,
+            target_price,
+            direction,
+            verdict,
+        });
+    }
+
     // === Internal helpers ===
 
     /// Map asset enum to Pyth price feed ID (devnet)

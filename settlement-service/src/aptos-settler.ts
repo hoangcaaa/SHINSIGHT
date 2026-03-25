@@ -47,15 +47,18 @@ export async function settleCall(callId: number, asset: number): Promise<SettleR
   try {
     const oracle = getOracleAccount();
 
-    // Fetch fresh Pyth VAA for on-chain price update
-    const { vaaBytes } = await fetchPythVaa(asset);
+    // Fetch real price from Pyth Hermes API (off-chain)
+    const { price } = await fetchPythVaa(asset);
+    console.log(`[settle] Pyth price for asset ${asset}: ${price}`);
 
+    // Call settle_with_price — admin provides the off-chain Pyth price directly
+    // This bypasses uninitialized on-chain Pyth on testnet
     const payload: InputEntryFunctionData = {
-      function: `${MODULE_ADDRESS}::oracle_settlement::settle`,
+      function: `${MODULE_ADDRESS}::oracle_settlement::settle_with_price`,
       functionArguments: [
         MODULE_ADDRESS,        // module_addr
         callId,                // call_id: u64
-        vaaBytes,              // pyth_update_data: vector<vector<u8>>
+        price,                 // actual_price: u64 (from Pyth off-chain)
       ],
     };
 
