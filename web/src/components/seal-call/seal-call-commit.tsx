@@ -21,7 +21,8 @@ export function SealCallCommit({ data, onBack, onDone }: SealCallCommitProps) {
   async function handleCommit() {
     setState("sealing");
     try {
-      const revealUnix = Math.floor(new Date(data.revealAt).getTime() / 1000);
+      // Treat the datetime-local value as UTC by appending "Z"
+      const revealUnix = Math.floor(new Date(data.revealAt + "Z").getTime() / 1000);
 
       // Step 1: seal via Edge Function → get content_hash
       const res = await fetch("/api/submit-call", {

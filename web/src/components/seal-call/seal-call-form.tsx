@@ -16,10 +16,13 @@ interface SealCallFormProps {
   onNext: () => void;
 }
 
+/** Returns the minimum reveal time (now + 1 h) as a UTC datetime-local string */
 const minRevealAt = () => {
   const d = new Date(Date.now() + 60 * 60 * 1000);
   return d.toISOString().slice(0, 16);
 };
+
+
 
 export function SealCallForm({ data, onChange, onNext }: SealCallFormProps) {
   function set<K extends keyof SealCallFormData>(
@@ -103,7 +106,7 @@ export function SealCallForm({ data, onChange, onNext }: SealCallFormProps) {
       {/* Reveal at */}
       <div>
         <label className="mb-1 block text-xs uppercase tracking-wider text-[#888780]">
-          Reveal Date/Time (min +1h)
+          Reveal Date/Time — UTC (min +1 h)
         </label>
         <input
           type="datetime-local"
