@@ -15,7 +15,7 @@ module shinsight::call_registry {
     const MIN_UNLOCK_PRICE: u64 = 10_000_000;
 
     /// Minimum reveal gap: 1 hour (3600 seconds)
-    const MIN_REVEAL_GAP: u64 = 3600;
+    const MIN_REVEAL_GAP: u64 = 180; // 3 minutes for testnet (mainnet: 3600)
 
     /// Call status enum
     const STATUS_ACTIVE: u8 = 0;

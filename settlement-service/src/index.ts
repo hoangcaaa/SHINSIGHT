@@ -4,6 +4,7 @@
 import crypto from "crypto";
 import express from "express";
 import { settleCall, expireCall, healthCheck } from "./aptos-settler";
+import { syncSettlementToDb } from "./db-sync";
 
 const app = express();
 app.use(express.json());
@@ -63,7 +64,24 @@ app.post("/settle", async (req, res) => {
   const result = await settleCall(Number(call_id), Number(asset));
   console.log(`[settle] success=${result.success} hash=${result.hash.slice(0, 16)}...`);
 
-  // Sanitize error before returning
+  // Sync to DB if settlement succeeded
+  if (result.success && result.hash) {
+    const verdictMap: Record<number, "settled_true" | "settled_false"> = { 1: "settled_true", 2: "settled_false" };
+    const dbVerdict = verdictMap[result.verdict ?? 0];
+    if (dbVerdict) {
+      try {
+        await syncSettlementToDb({
+          callIdOnchain: Number(call_id),
+          verdict: dbVerdict,
+          actualPrice: result.actualPrice ?? 0,
+          txHash: result.hash,
+        });
+      } catch (err) {
+        console.error("[settle] DB sync failed:", err);
+      }
+    }
+  }
+
   res.status(result.success ? 200 : 502).json({
     hash: result.hash,
     success: result.success,
@@ -82,6 +100,20 @@ app.post("/expire", async (req, res) => {
   console.log(`[expire] call_id=${call_id}`);
   const result = await expireCall(Number(call_id));
   console.log(`[expire] success=${result.success} hash=${result.hash.slice(0, 16)}...`);
+
+  // Sync expiry to DB
+  if (result.success && result.hash) {
+    try {
+      await syncSettlementToDb({
+        callIdOnchain: Number(call_id),
+        verdict: "expired",
+        actualPrice: 0,
+        txHash: result.hash,
+      });
+    } catch (err) {
+      console.error("[expire] DB sync failed:", err);
+    }
+  }
 
   res.status(result.success ? 200 : 502).json({
     hash: result.hash,

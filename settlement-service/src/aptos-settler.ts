@@ -37,6 +37,10 @@ export interface SettleResult {
   hash: string;
   success: boolean;
   error?: string;
+  /** Actual price from Pyth (for DB sync) */
+  actualPrice?: number;
+  /** Verdict status: 1=TRUE, 2=FALSE */
+  verdict?: number;
 }
 
 /**
@@ -77,10 +81,22 @@ export async function settleCall(callId: number, asset: number): Promise<SettleR
       transactionHash: submitted.hash,
     });
 
+    // Extract verdict from tx events
+    let verdict: number | undefined;
+    if (result.success) {
+      const events = (result as unknown as { events?: Array<{ type: string; data: Record<string, string> }> }).events;
+      const verdictEvent = events?.find((e) => e.type.includes("VerdictEvent"));
+      if (verdictEvent) {
+        verdict = Number(verdictEvent.data.verdict);
+      }
+    }
+
     return {
       hash: submitted.hash,
       success: result.success,
       error: result.success ? undefined : String(result.vm_status),
+      actualPrice: price,
+      verdict,
     };
   } catch (err) {
     return {

@@ -1,0 +1,18 @@
+app = "shinsight-settlement"
+primary_region = "sin"
+
+[build]
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[env]
+  PORT = "3001"
+  APTOS_NETWORK = "testnet"
+  MODULE_ADDRESS = "0xf526cbc526a400390a5e180730fe516e12ccb724e59c70217bca81c3ea4598e9"
+  PYTH_HERMES_URL = "https://hermes.pyth.network"
+  NODE_ENV = "production"
