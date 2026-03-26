@@ -36,7 +36,7 @@ npm-debug.log*
 
 # Private Financials / Wallets
 *.key
-wallet/
+/wallet/
 private/
 
 # Claude / AI Metadata
