@@ -152,6 +152,24 @@ export async function expireCall(callId: number): Promise<SettleResult> {
   }
 }
 
+/** Read on-chain call status (for reconciliation) */
+export async function getCallOnchainStatus(callId: number): Promise<{ status: number; targetPrice: number } | null> {
+  try {
+    const result = await aptos.view({
+      payload: {
+        function: `${MODULE_ADDRESS}::call_registry::get_call`,
+        functionArguments: [MODULE_ADDRESS, callId],
+      },
+    });
+    if (result && result.length >= 8) {
+      return { status: Number(result[7]), targetPrice: Number(result[4]) };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Health check — verify oracle account exists and has balance */
 export async function healthCheck(): Promise<{ address: string; balance: string }> {
   const oracle = getOracleAccount();

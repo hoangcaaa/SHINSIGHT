@@ -3,7 +3,7 @@
 
 import crypto from "crypto";
 import express from "express";
-import { settleCall, expireCall, healthCheck } from "./aptos-settler";
+import { settleCall, expireCall, healthCheck, getCallOnchainStatus } from "./aptos-settler";
 import { syncSettlementToDb } from "./db-sync";
 
 const app = express();
@@ -120,6 +120,41 @@ app.post("/expire", async (req, res) => {
     success: result.success,
     ...(result.error ? { error: IS_PRODUCTION ? "Expiry failed" : result.error } : {}),
   });
+});
+
+/** POST /reconcile — sync on-chain status to DB for a call */
+app.post("/reconcile", authGuard, async (req, res) => {
+  const { call_id_onchain } = req.body;
+  if (!isValidId(call_id_onchain)) {
+    res.status(400).json({ error: "Invalid call_id_onchain" });
+    return;
+  }
+
+  const onchain = await getCallOnchainStatus(Number(call_id_onchain));
+  if (!onchain) {
+    res.status(404).json({ error: "Call not found on-chain" });
+    return;
+  }
+
+  const statusMap: Record<number, "active" | "settled_true" | "settled_false" | "expired"> = {
+    0: "active", 1: "settled_true", 2: "settled_false", 3: "expired",
+  };
+  const dbStatus = statusMap[onchain.status] ?? "active";
+
+  if (dbStatus !== "active") {
+    try {
+      await syncSettlementToDb({
+        callIdOnchain: Number(call_id_onchain),
+        verdict: dbStatus as "settled_true" | "settled_false" | "expired",
+        actualPrice: 0,
+        txHash: "reconciled",
+      });
+    } catch (err) {
+      console.error("[reconcile] sync failed:", err);
+    }
+  }
+
+  res.json({ call_id_onchain, onchain_status: onchain.status, db_status: dbStatus });
 });
 
 /** GET /health — verify oracle account is configured and funded */
