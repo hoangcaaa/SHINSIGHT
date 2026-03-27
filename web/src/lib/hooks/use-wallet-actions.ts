@@ -1,6 +1,7 @@
 "use client";
 /// Hook: wallet actions — deposit for call, commit call
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { AccountAddress } from "@aptos-labs/ts-sdk";
 import { MODULE_ADDRESS } from "@/lib/aptos-client";
 
 export function useWalletActions() {
@@ -11,7 +12,10 @@ export function useWalletActions() {
     const response = await signAndSubmitTransaction({
       data: {
         function: `${MODULE_ADDRESS}::escrow::deposit`,
-        functionArguments: [MODULE_ADDRESS, callIdOnchain.toString()],
+        functionArguments: [
+          AccountAddress.from(MODULE_ADDRESS),
+          callIdOnchain.toString(),
+        ],
       },
     });
     return response.hash;
@@ -31,13 +35,13 @@ export function useWalletActions() {
       data: {
         function: `${MODULE_ADDRESS}::call_registry::create_call`,
         functionArguments: [
-          MODULE_ADDRESS,
+          AccountAddress.from(MODULE_ADDRESS),
           contentHashBytes,
           params.asset,
           params.direction,
-          params.targetPrice,
-          params.revealTimestamp,
-          params.unlockPrice,
+          params.targetPrice.toString(),
+          params.revealTimestamp.toString(),
+          params.unlockPrice.toString(),
         ],
       },
     });
