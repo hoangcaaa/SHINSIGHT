@@ -16,12 +16,24 @@ interface SealCallFormProps {
   onNext: () => void;
 }
 
-/** Returns the minimum reveal time (now + 1 h) as a UTC datetime-local string */
+/** Returns the minimum reveal time (now + 1 h) as a local datetime-local string */
 const minRevealAt = () => {
   const d = new Date(Date.now() + 60 * 60 * 1000);
-  return d.toISOString().slice(0, 16);
+  return toLocalDatetimeString(d);
 };
 
+/** Formats a Date as "YYYY-MM-DDTHH:MM" in local timezone for datetime-local input */
+function toLocalDatetimeString(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Formats the UTC equivalent of a local datetime-local string */
+function utcLabel(localValue: string): string {
+  if (!localValue) return "";
+  const d = new Date(localValue);
+  return d.toLocaleString("en-US", { timeZone: "UTC", hour12: false }) + " UTC";
+}
 
 
 export function SealCallForm({ data, onChange, onNext }: SealCallFormProps) {
@@ -106,7 +118,7 @@ export function SealCallForm({ data, onChange, onNext }: SealCallFormProps) {
       {/* Reveal at */}
       <div>
         <label className="mb-1 block text-xs uppercase tracking-wider text-[#888780]">
-          Reveal Date/Time — UTC (min +1 h)
+          Reveal Date/Time (min +1 h)
         </label>
         <input
           type="datetime-local"
@@ -115,6 +127,11 @@ export function SealCallForm({ data, onChange, onNext }: SealCallFormProps) {
           onChange={(e) => set("revealAt", e.target.value)}
           className="w-full rounded-md border border-[rgba(255,255,255,0.1)] bg-[#1E1D19] px-3 py-2 text-sm text-[#F5F5F0] focus:outline-none focus:ring-1 focus:ring-[#EF9F27]"
         />
+        {data.revealAt && (
+          <p className="mt-1 text-[10px] text-[#888780]">
+            = {utcLabel(data.revealAt)}
+          </p>
+        )}
       </div>
 
       {/* Unlock price */}

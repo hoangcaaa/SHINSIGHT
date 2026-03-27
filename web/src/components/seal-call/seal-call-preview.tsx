@@ -14,7 +14,7 @@ export function SealCallPreview({ data, onBack, onNext }: SealCallPreviewProps) 
   const asset = getAsset(data.asset);
   const directionUp = data.direction;
   const revealLabel = data.revealAt
-    ? new Date(data.revealAt + "Z").toLocaleString("en-US", { timeZone: "UTC" }) + " UTC"
+    ? new Date(data.revealAt).toLocaleString("en-US", { timeZone: "UTC", hour12: false }) + " UTC"
     : "—";
 
   return (
