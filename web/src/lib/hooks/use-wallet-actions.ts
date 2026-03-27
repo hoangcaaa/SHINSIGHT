@@ -32,12 +32,12 @@ export function useWalletActions() {
         function: `${MODULE_ADDRESS}::call_registry::create_call`,
         functionArguments: [
           MODULE_ADDRESS,
-          Array.from(contentHashBytes),
+          contentHashBytes,
           params.asset,
           params.direction,
-          params.targetPrice.toString(),
-          params.revealTimestamp.toString(),
-          params.unlockPrice.toString(),
+          params.targetPrice,
+          params.revealTimestamp,
+          params.unlockPrice,
         ],
       },
     });
